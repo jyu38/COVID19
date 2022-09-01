@@ -1,0 +1,434 @@
+---
+title: "PuglisiBrazilDraft1"
+author: "Justin Yu"
+date: "7/15/2022"
+output: 
+  pdf_document:
+    toc: True
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(readxl)
+library(kableExtra)
+#install.packages("data.table")
+library(data.table)
+library(dplyr)
+library(caret)
+```
+
+```{r, include=FALSE}
+setwd("C:\\Users\\Admin\\Downloads\\CNUCOM\\M1\\Puglisi Stats_Reasearch")
+
+
+#Patients Data for BPSP
+BPSPpt <- read.csv(unz("BPSP.zip",
+                            "bpsp_pacientes_01.csv"), sep = "|")
+colnames(BPSPpt) <- c("Patient ID", "Sex", "Year of Birth", "Country of Residence", "County of Residence", "City of Residence",  "Postal Code of Residence")
+
+
+#Results Data for BPSP
+BPSPR <- read.csv(unz("BPSP.zip",
+                            "bpsp_desfecho_01.csv"), sep = "|")
+#need to readjust values in Service ID, add in type of service
+#A lot of the columns make no sense, Clinic Unit (De-CLinica), and data within the columns need to be translated
+colnames(BPSPR) <- c("Patient ID", "Service ID", "Service Date Completion", "Service Type", "Clinic ID", "Clinic Name",  "Outcome Date", "Outcome Type")
+
+#Combining the Datasets
+#I used data.table as its much better for ram
+BPSPpt <- data.table(BPSPpt, key = "Patient ID")
+BPSPR <- data.table(BPSPR, key = "Patient ID")
+BPSPJoined <- BPSPpt[BPSPR]
+
+
+
+
+#Patients Data for Junho
+Junhopt <- read.csv(unz("HSL_Junho2021.zip",
+                            "HSL_Pacientes_4.csv"), sep = "|")
+colnames(Junhopt) <- c("Patient ID", "Sex", "Year of Birth", "Country of Residence", "Federation Unit of Residence", "City of Residence",  "Postal Code of Residence")
+
+#Change all AAAA NA values in YOB to NA so we can cocerce to numeric later
+#Junhopt[ Junhopt == "YYYY" || "AAAA"] <- NA
+#Junhopt[ Junhopt == "AAAA"]  <- NA
+
+#Change YOB to numeric value
+#Junhopt$`Year of Birth` <- as.numeric(as.character(Junhopt$`Year of Birth`))
+
+#Add Age of Pt
+#Junhopt$Age <- (2022 - Junhopt$`Year of Birth`)
+
+#Results Data for Junho
+JunhoR <- read.csv(unz("HSL_Junho2021.zip",
+                            "HSL_Desfechos_4.csv"), sep = "|")
+colnames(JunhoR) <- c("Patient ID", "Service ID", "Service Date Completion", "Service Type", "Clinic ID", "Clinic Name",  "Outcome Date", "Outcome Type")
+
+
+#Combining the Datasets
+#I used data.table as its much better for ram
+Junhopt <- data.table(Junhopt, key = "Patient ID")
+JunhoR <- data.table(JunhoR, key = "Patient ID")
+JunhoJoined <- Junhopt[JunhoR]
+
+
+#Joined BPSP and Junho Datasets
+BPSPJoined <- data.table(BPSPJoined, key = "Patient ID")
+JunhoJoined <- data.table(JunhoJoined, key = "Patient ID")
+AGG <- BPSPJoined[JunhoJoined]
+
+```
+
+\newpage
+
+# Introduction
+
+This literature is about COVID-19 patients in the Junho hospital territory located in Sao Paulo, Brazil. The data was extracted from the COVID-19 Data Sharing Repository created by the FAPESP (A public tax-payer foundation created to support research in Sao Paulo) and the University of Sao Paulo. The data is periodically updated, and has data from June 30th, 2020 and onwards. We focused on examining the patient and the patient outcomes within the given datasets of hospitals. The data gives us general information about the patient, such as DOB, and postal code of address. The aim is to run univarate graphics on the data to assess general trends, understand the meaning of the variables, and come to definitive ideas on possible future research avenues.
+
+# About the Data
+
+## Data Dictionary
+
+```{r, include=FALSE}
+DDic <- read_excel("C:\\Users\\Admin\\Downloads\\CNUCOM\\M1\\Puglisi Stats_Reasearch\\Junho1stdatadic.xlsx")
+DDic <- kable(DDic, "latex", longtable = T,
+                  caption = "Data Dictionary", 
+                  booktabs = T) %>%
+  kable_styling(latex_options = c("striped","repeat_header")) %>%
+  column_spec(1, width = "3.5cm") %>%
+  column_spec(3, width = "8cm") %>%
+  row_spec(0, bold = T)
+DDic
+```
+
+
+### Notes Regarding Summary of Variables 
+
+* The variable `Year of Birth` has AAAA for year of birth equal to or before 1930, and YYYY for unknown year
+* The variable `Country of Residence` has BR for Brazil, and XX for any other foreign country
+* The varibale `Federation Unit of Residence` has many shorthands. They are explained in the table found in the addendum
+* The variable `City of Residence` has MMMM for any anonymous or city outside of Brazil
+* The variable `Postal Code of Residence` has CCCC when the postal code is anonymous or outside of Brazil
+* The variable `Service ID` is linked to the table in the addendum
+* The variable `Service Date Completion` is formated to be **DD/MM/YYYY**
+* The variable `Service Type` is untranslated. This is explained in the table found in the addendum
+* The variable `Clinic ID` is the ID of the clinic given numerically. This is explained in the addendum. *Ask Puglisi about this*
+* The variable `Clinic Name` is untranslated. This is explained in the table found in the addendum
+* The variable `Outcome Data` is formatted to be **DD/MM/YYYY**
+* The variable `Outcome Type` is untranslated. This is explained in the table found in the addendum
+
+
+# Missing Variables 
+
+Here we report the number of missing variables for applicable variables. This is done for the aggregate dataset, the BPSP dataset, and the Junho Dataset
+
+```{r, include=FALSE}
+#BPSP Missing Values
+#Counting the Number of Anonymous values in YOB
+bnayob1 <- nrow(BPSPJoined[BPSPJoined$`Year of Birth` == "YYYY", ])
+bnayob2 <- nrow(BPSPJoined[BPSPJoined$`Year of Birth` == "AAAA", ])
+
+#Counting the Number of Anonymous values in CoR
+bnacor <- nrow(BPSPJoined[BPSPJoined$`Country of Residence` == "XX", ])
+
+#Counting the Number of Anonymous values in FUoR
+bnafur <- nrow(BPSPJoined[BPSPJoined$`Federation Unit of Residence` == "UU", ])
+
+#Counting the Number of Anonymous values in CitoR
+bnacitor <- nrow(BPSPJoined[BPSPJoined$`City of Residence` == "MMMM", ])
+
+#Counting the Number of Anonymous values in PCoR
+bnapcor <- nrow(BPSPJoined[BPSPJoined$`Postal Code of Residence` == "CCCC", ])
+
+#Creating the Table
+bnatab <- matrix(c(bnayob1+bnayob2, bnacor, bnafur, bnacitor, bnapcor), 
+                ncol = 5, 
+                byrow = T)
+colnames(bnatab) <- c("Year of Birth", "Country of Residence", "Federation Unit of Residence", "City of Residence", "Postal Code of Residence")
+rownames(bnatab) <- "# of Missing Values"
+bnatab <- as.table(bnatab)
+#bnatab
+
+
+#Junho Missing Values
+#Counting the Number of Anonymous values in YOB
+jnayob1 <- nrow(JunhoJoined[JunhoJoined$`Year of Birth` == "YYYY", ])
+jnayob2 <- nrow(JunhoJoined[JunhoJoined$`Year of Birth` == "AAAA", ])
+
+#Counting the Number of Anonymous values in CoR
+jnacor <- nrow(JunhoJoined[JunhoJoined$`Country of Residence` == "XX", ])
+
+#Counting the Number of Anonymous values in FUoR
+jnafur <- nrow(JunhoJoined[JunhoJoined$`Federation Unit of Residence` == "UU", ])
+
+#Counting the Number of Anonymous values in CitoR
+jnacitor <- nrow(JunhoJoined[JunhoJoined$`City of Residence` == "MMMM", ])
+
+#Counting the Number of Anonymous values in PCoR
+jnapcor <- nrow(JunhoJoined[JunhoJoined$`Postal Code of Residence` == "CCCC", ])
+
+#Creating the Table
+jnatab <- matrix(c(jnayob1+jnayob2, jnacor, jnafur, jnacitor, jnapcor), 
+                ncol = 5, 
+                byrow = T)
+colnames(jnatab) <- c("Year of Birth", "Country of Residence", "Federation Unit of Residence", "City of Residence", "Postal Code of Residence")
+rownames(jnatab) <- "# of Missing Values"
+jnatab <- as.table(jnatab)
+#jnatab
+
+
+#Aggregate Missing Values
+#Counting the Number of Anonymous values in YOB
+nayob1 <- nrow(AGG[AGG$`Year of Birth` == "YYYY", ])
+nayob2 <- nrow(AGG[AGG$`Year of Birth` == "AAAA", ])
+
+#Counting the Number of Anonymous values in CoR
+nacor <- nrow(AGG[AGG$`Country of Residence` == "XX", ])
+
+#Counting the Number of Anonymous values in FUoR
+nafur <- nrow(AGG[AGG$`Federation Unit of Residence` == "UU", ])
+
+#Counting the Number of Anonymous values in CitoR
+nacitor <- nrow(AGG[AGG$`City of Residence` == "MMMM", ])
+
+#Counting the Number of Anonymous values in PCoR
+napcor <- nrow(AGG[AGG$`Postal Code of Residence` == "CCCC", ])
+
+#Creating the Table
+natab <- matrix(c(nayob1+nayob2, nacor, nafur, nacitor, napcor), 
+                ncol = 5, 
+                byrow = T)
+colnames(natab) <- c("Year of Birth", "Country of Residence", "Federation Unit of Residence", "City of Residence", "Postal Code of Residence")
+rownames(natab) <- "# of Missing Values"
+natab <- as.table(natab)
+#natab
+
+
+#Tables in Kable
+
+natab %>% 
+  kable("latex", caption = "Missingness and Quantitative Variable Summary: Aggregate Data", 
+        booktabs = T) %>% 
+  kable_styling(latex_options = c("striped", "hold_position", "scale_down")) %>%
+  column_spec(1, width = "3 cm") %>%
+  column_spec(2, width = "1.5 cm")
+
+bnatab %>% 
+  kable("latex", caption = "Missingness and Quantitative Variable Summary: BPSP Data", 
+        booktabs = T) %>% 
+  kable_styling(latex_options = c("striped", "hold_position", "scale_down")) %>%
+  column_spec(1, width = "3 cm") %>%
+  column_spec(2, width = "1.5 cm")
+
+jnatab %>% 
+  kable("latex", caption = "Missingness and Quantitative Variable Summary: Junho Data", 
+        booktabs = T) %>% 
+  kable_styling(latex_options = c("striped", "hold_position", "scale_down")) %>%
+  column_spec(1, width = "3 cm") %>%
+  column_spec(2, width = "1.5 cm")
+```
+
+# Quantitative Variable Summary
+
+*Thinking about adding age, but not sure what else other than age/yob, maybe we could do Outcome date - Service date?*
+
+```{r, include=FALSE}
+# For age calculation
+
+#Duplicated OG dataset
+agg <- AGG
+
+#Change all AAAA NA values in YOB to NA so we can coerce to numeric later, do the same with YYYY
+agg[agg == "AAAA" ] <- NA
+agg[agg == "YYYY" ] <- NA
+
+#Change YOB to numeric value
+agg$`Year of Birth` <- as.numeric(as.character(agg$`Year of Birth`))
+
+#Add Age of Pt, also creating a column for it in the duplicate dataset
+agg$Age <- (2022 - agg$`Year of Birth`)
+#head(JJ, 50)
+fna <- fivenum(agg$Age)
+ma <- mean(agg$Age, na.rm=T)
+sda <- sd(agg$Age, na.rm= T)
+
+#Creating the Table
+qtab <- matrix(c(ma, sda, fna), 
+                ncol = 7, 
+                byrow = T)
+colnames(qtab) <- c("Mean", "SD", "Min", "Q1", "Median" , "Q3", "Max")
+rownames(qtab) <- c("Age")
+qtab <- as.table(qtab)
+qtab %>% 
+  kable("latex", caption = "Age Summary Statistics", 
+        booktabs = T) %>% 
+  kable_styling(latex_options = c("striped", "hold_position", "scale_down")) %>%
+  column_spec(1, width = "3 cm") %>%
+  column_spec(2, width = "1.5 cm")
+
+
+# Length of Stay Results
+
+# We need to do Outcome Date - Service Date Completion
+#BPSP
+#Change all DDMMAA NA values in Outcome and Service Dates to NA so we can coerce to Date format
+BPSPJoined[BPSPJoined == "DDMMAA" ] <- NA
+#Then coerce to Date format
+BPSPJoined$`Outcome Date` <- as.Date(BPSPJoined$`Outcome Date`, "%m/%d/%y")
+BPSPJoined$`Service Date Completion` <- as.Date(BPSPJoined$`Service Date Completion`, "%m/%d/%y")
+#Now just subtract to get length of stay
+BPSPJoined$`Length of Stay` <- BPSPJoined$`Outcome Date` - BPSPJoined$`Service Date Completion`
+BPSPJoined
+#Junho
+#Change all DDMMAA NA values in Outcome and Service Dates to NA so we can coerce to Date format
+JunhoJoined[JunhoJoined == "DDMMAA" ] <- NA
+#Then coerce to Date format
+JunhoJoined$`Outcome Date` <- as.Date(JunhoJoined$`Outcome Date`, "%m/%d/%y")
+JunhoJoined$`Service Date Completion` <- as.Date(JunhoJoined$`Service Date Completion`, "%m/%d/%y")
+#Now just subtract to get length of stay
+JunhoJoined$`Length of Stay` <- JunhoJoined$`Outcome Date` - JunhoJoined$`Service Date Completion`
+#JunhoJoined *MAYBE HERE WE REDO THIS WITH A KABLE
+
+
+
+
+
+
+#DO A KABLE
+```
+
+\newpage
+
+# Varate Graphics
+
+*** I tried to match up with Emilie's code, but it was not working out. Msg her later, and just do raw analysis with your data
+
+
+\newpage
+
+# Analysis
+
+```{r}
+#Make the Binary Column of Deaths outcomes for analysis
+#Death is 0, lives is 1
+#This is also where I need someone to double check if I am translating this correctly
+
+#unique(BPSPJoined$`Outcome Type`)
+
+#Make a copy of the datasets because I am scared I will fuck something up
+BPSPJ <- BPSPJoined
+JunhoJ <- JunhoJoined
+
+BPSPJ %>%
+  mutate(`Binary Death` = case_when(
+    startsWith(`Outcome Type`, "O") ~ 0,
+    startsWith(`Outcome Type`, "A") ~ 1,
+    startsWith(`Outcome Type`, "T") ~ 1,
+    startsWith(`Outcome Type`, "E") ~ 1
+    ))
+
+
+JunhoJ %>%
+  mutate(`Binary Death` = case_when(
+    startsWith(`Outcome Type`, "O") ~ 0,
+    startsWith(`Outcome Type`, "A") ~ 1,
+    startsWith(`Outcome Type`, "T") ~ 1,
+    startsWith(`Outcome Type`, "E") ~ 1
+    ))
+
+#Make a column for Pt Age
+
+#Ok I got it working for BPSP but its really awkward code
+
+#unique(BPSPJ$`Year of Birth`)
+
+#Change all AAAA NA values in YOB to NA so we can cocerce to numeric later
+as.character(BPSPJ$`Year of Birth`)
+
+#BPSPJ[BPSPJ == "YYYY"] <- NA
+#BPSPJ[BPSPJ == "AAAA"]  <- NA
+
+
+#Change YOB to numeric value
+BPSPJ$`Year of Birth` <- as.numeric(as.character(BPSPJ$`Year of Birth`))
+
+#Add Age of Pt
+BPSPJ$Age <- (2022 - BPSPJ$`Year of Birth`)
+
+
+
+#Change all AAAA NA values in YOB to NA so we can cocerce to numeric later
+JunhoJ[JunhoJ == "YYYY"] <- NA
+JunhoJ[JunhoJ == "AAAA"]  <- NA
+
+#Change YOB to numeric value
+JunhoJ$`Year of Birth` <- as.numeric(as.character(JunhoJ$`Year of Birth`))
+
+#Add Age of Pt
+JunhoJ$Age <- (2022 - JunhoJ$`Year of Birth`)
+
+```
+
+
+
+```{r}
+#Now we can actually do the tests
+chisq.test(BPSPJ$Age, JunhoJ$Age)
+
+chisq.test(BPSPJ$`Binary Death`)
+
+BPSPJ$
+
+  
+#Linear Regression
+glm1 <- glm(BPSPJ$`Binary Death` ~ BPSPJ$Age +
+              BPSPJ$`Length of Stay` +
+              BPSPJ$Sex +
+              BPSPJ$`Postal Code of Residence`, 
+            family=binomial(link="logit"))
+summary(glm1)
+
+#Simple Model
+glm1a <- glm(`Binary Death` ~ 1,
+             data = BPSPJ,
+             family = binomial(link="logit"))
+  
+#backward model
+step(glm1, direction = "backward",
+     trace = F)
+
+#forward model
+step(glm1a, scope = list(lower = glm1a, 
+                         upper = glm1),
+     direction = "forward",
+     trace = F)
+
+#stepwise model
+step(glm1a, scope = list(lower = glm1a, 
+                         upper = glm1),
+     direction = "both",
+     trace = F)
+
+#glm2 will be the final model 
+
+#ROC Curve
+#Data can be BPSPJ, or JunhoJ
+pred1 <- predict(glm2, 
+                 BPSPJ,
+                 type = "response")
+curve1 <- roc(BPSPJ$`Binary Death`, pred1)
+plot(curve1)
+
+#ifelse declares our cutoff, here it is 70%
+surv_pred2 <- as.factor(ifelse(pred2 >= .7, 1, 0))
+confusionMatrix(surv_pred2, BPSPJ$`Binary Death`)
+
+```
+
+
+*_1 Run a Chi sq on the Difference of Means. Can do one for #of Deaths/ Negative outcomes (Aka
+make every negative outcome a 0, make every other outcome 1, and compare means), and age
+
+* I want to run a difference in the categorical difference of postal code betweeen BPSP and Junho
+
+* Finally, I want to make a lin reg with y being = death (those who died (small %%),), x being = t in hospital, YOB, Service Type: (0 or 1 wheather if its saving or not?)
